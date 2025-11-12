@@ -1,0 +1,61 @@
+# Development overrides for Docker Compose
+# Use with: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+version: '3.8'
+
+services:
+  # Frontend with hot reloading
+  frontend:
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - FAST_REFRESH=true
+    command: npm start
+
+  # Simulation Engine with hot reloading
+  simulation-engine:
+    volumes:
+      - ./simulation-engine:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+    command: npm run dev
+
+  # Microservices with hot reloading
+  api-gateway:
+    volumes:
+      - ./microservices/api-gateway:/app
+      - /app/node_modules
+    command: npm run dev
+
+  auth-service:
+    volumes:
+      - ./microservices/auth-service:/app
+      - /app/node_modules
+    command: npm run dev
+
+  user-service:
+    volumes:
+      - ./microservices/user-service:/app
+      - /app/node_modules
+    command: npm run dev
+
+  order-service:
+    volumes:
+      - ./microservices/order-service:/app
+      - /app/node_modules
+    command: npm run dev
+
+  product-service:
+    volumes:
+      - ./microservices/product-service:/app
+      - /app/node_modules
+    command: npm run dev
+
+  database-service:
+    volumes:
+      - ./microservices/database-service:/app
+      - /app/node_modules
+    command: npm run dev

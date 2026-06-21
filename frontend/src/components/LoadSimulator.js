@@ -40,6 +40,9 @@ const LoadSimulator = ({ onPredictionsChange, isMLReady }) => {
   const handleSliderChange = (e) => {
     const value = parseInt(e.target.value);
     setUsers(value);
+    // Show spinner immediately while dragging, not just after debounce fires
+    if (value > 0) setLoading(true);
+    else { setLoading(false); setSummary(null); onPredictionsChange(null); }
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => fetchPrediction(value), 280);
   };
@@ -74,11 +77,14 @@ const LoadSimulator = ({ onPredictionsChange, isMLReady }) => {
             <span className="users-count">{users.toLocaleString()}</span>
             <span className="users-unit"> concurrent users</span>
           </span>
-          {users > 0 && (
-            <span className="zone-label" style={{ color: currentZone.color }}>
-              {currentZone.label} Zone
-            </span>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {loading && <span className="ls-spinner" />}
+            {users > 0 && !loading && (
+              <span className="zone-label" style={{ color: currentZone.color }}>
+                {currentZone.label} Zone
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="slider-track-wrapper">

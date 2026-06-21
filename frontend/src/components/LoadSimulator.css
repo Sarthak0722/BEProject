@@ -189,3 +189,18 @@
   margin: 8px 0 0;
   font-style: italic;
 }
+
+.ls-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(59, 130, 246, 0.2);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: ls-spin 0.65s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes ls-spin {
+  to { transform: rotate(360deg); }
+}

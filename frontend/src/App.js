@@ -28,10 +28,6 @@ export default function App() {
   // Tracks what faults are currently injected per service — persists across popup opens
   const [serviceFaults, setServiceFaults] = useState({});
 
-  // Activity loader — shows a thin bar when fault injection is in flight
-  const [isInjecting, setIsInjecting] = useState(false);
-  const injectTimerRef = useRef(null);
-
   // Tour guide
   const [showTour, setShowTour] = useState(() => !localStorage.getItem('kendra_tour_done'));
 
@@ -95,10 +91,6 @@ export default function App() {
 
   // Fault injection — also updates local tracking state
   const handleFaultInjection = (serviceId, fault) => {
-    // Trigger the mini activity bar
-    setIsInjecting(true);
-    clearTimeout(injectTimerRef.current);
-    injectTimerRef.current = setTimeout(() => setIsInjecting(false), 900);
     setServiceFaults(prev => {
       const current = prev[serviceId] || {};
       let updated = { ...current };
@@ -177,9 +169,6 @@ export default function App() {
 
   return (
     <div className={`app mode-${mode}`}>
-      {/* Mini activity bar — appears during fault injection */}
-      {isInjecting && <div className="inject-loader" />}
-
       {/* Tour guide */}
       {showTour && (
         <TourGuide onDone={() => {
@@ -238,14 +227,11 @@ export default function App() {
         </div>
       </header>
 
-      {/* Mode banner */}
-      {mode === 'simulation' && (
+      {/* Active faults count strip — shown only when faults are injected */}
+      {mode === 'simulation' && activeFaultCount > 0 && (
         <div className="simulation-banner">
           <span className="sim-banner-icon">⚡</span>
-          <strong>Simulation Mode</strong> — Click any service node to inject faults. All changes are simulated. Nothing breaks for real.
-          {activeFaultCount > 0 && (
-            <span className="sim-fault-count">{activeFaultCount} active fault{activeFaultCount > 1 ? 's' : ''}</span>
-          )}
+          <span className="sim-fault-count">{activeFaultCount} active fault{activeFaultCount > 1 ? 's' : ''} injected</span>
         </div>
       )}
 
@@ -291,9 +277,6 @@ export default function App() {
             )}
             {mode === 'monitoring' && (
               <div className="graph-mode-label">Live Service Topology</div>
-            )}
-            {mode === 'simulation' && !loadPredictions && (
-              <div className="graph-mode-label sim">Click a node to inject a fault</div>
             )}
             <ConnectedServiceGraph
               servicesConfig={servicesConfig}

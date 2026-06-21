@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { X, AlertTriangle, Clock, Zap, RotateCcw, Activity } from 'lucide-react';
 import './ServicePopup.css';
@@ -6,10 +6,11 @@ import './ServicePopup.css';
 const ML_URL = process.env.REACT_APP_ML_URL || 'http://localhost:5001';
 
 const ServicePopup = ({ serviceId, serviceConfig, serviceState, currentFaults, onFaultInjection, onClose, isVisible, isMLReady }) => {
-  // Initialize from currentFaults so reopening shows the real current state
   const [faultSettings, setFaultSettings] = useState({ isFailed: false, latency: 0, errorRate: 0 });
   const [cascadePrediction, setCascadePrediction] = useState(null);
   const [predicting, setPredicting] = useState(false);
+  const [isBusy, setIsBusy] = useState(false);
+  const busyTimerRef = useRef(null);
 
   // When popup opens for a (possibly different) service, load its current fault state
   useEffect(() => {
@@ -43,9 +44,16 @@ const ServicePopup = ({ serviceId, serviceConfig, serviceState, currentFaults, o
     finally { setPredicting(false); }
   };
 
+  const triggerBusy = () => {
+    setIsBusy(true);
+    clearTimeout(busyTimerRef.current);
+    busyTimerRef.current = setTimeout(() => setIsBusy(false), 700);
+  };
+
   const handleFaultChange = (type, value) => {
     const newSettings = { ...faultSettings, [type]: value };
     setFaultSettings(newSettings);
+    triggerBusy();
 
     let fault = {};
     if (type === 'isFailed') {
@@ -92,7 +100,8 @@ const ServicePopup = ({ serviceId, serviceConfig, serviceState, currentFaults, o
             </div>
           </div>
           <div className="popup-header-right">
-            {hasActiveFault && <span className="fault-active-badge">FAULT ACTIVE</span>}
+            {isBusy && <span className="popup-busy-spinner" />}
+            {hasActiveFault && !isBusy && <span className="fault-active-badge">FAULT ACTIVE</span>}
             <button className="close-btn" onClick={onClose}><X size={16} /></button>
           </div>
         </div>

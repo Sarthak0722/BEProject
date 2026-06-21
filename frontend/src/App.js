@@ -7,6 +7,7 @@ import SystemStatus from './components/SystemStatus';
 import LoadSimulator from './components/LoadSimulator';
 import InsightsPanel from './components/InsightsPanel';
 import TourGuide from './components/TourGuide';
+import AnalyzeModal from './components/AnalyzeModal';
 import './App.css';
 
 const SIMULATOR_URL = process.env.REACT_APP_SIMULATOR_URL || 'http://localhost:4001';
@@ -35,9 +36,6 @@ export default function App() {
   const [isMLReady, setIsMLReady] = useState(false);
   const [loadPredictions, setLoadPredictions] = useState(null);
   const [showAnalyzeModal, setShowAnalyzeModal] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [analyzeResult, setAnalyzeResult] = useState(null);
-  const [analyzeError, setAnalyzeError] = useState(null);
 
   const socketRef = useRef(null);
 
@@ -133,23 +131,6 @@ export default function App() {
     setSelectedService(null);
   };
 
-  const handleAnalyzeLogs = async () => {
-    setAnalyzing(true);
-    setAnalyzeError(null);
-    setAnalyzeResult(null);
-    try {
-      const res = await axios.post(`${ML_URL}/analyze`, {}, { timeout: 60000 });
-      setAnalyzeResult(res.data);
-      setIsMLReady(true);
-      const cfgRes = await axios.get(`${SIMULATOR_URL}/api/services`);
-      setServicesConfig(cfgRes.data);
-    } catch (e) {
-      setAnalyzeError(e.response?.data?.error || 'Analysis failed. Check ML service.');
-    } finally {
-      setAnalyzing(false);
-    }
-  };
-
   // Active faults count for badge
   const activeFaultCount = Object.values(serviceFaults).filter(
     f => f.isFailed || f.latency > 0 || f.errorRate > 0
@@ -220,8 +201,8 @@ export default function App() {
             <button className="tour-btn" onClick={() => setShowTour(true)} title="Take the product tour">
               Take A Tour
             </button>
-            <button className="analyze-btn" onClick={() => setShowAnalyzeModal(true)} disabled={analyzing}>
-              {analyzing ? '⟳ Analyzing...' : '⬆ Analyze Logs'}
+            <button className="analyze-btn" onClick={() => setShowAnalyzeModal(true)}>
+              ⬆ Analyze Logs
             </button>
           </div>
         </div>
@@ -318,52 +299,13 @@ export default function App() {
 
       {/* Analyze Modal */}
       {showAnalyzeModal && (
-        <div className="modal-overlay" onClick={() => !analyzing && setShowAnalyzeModal(false)}>
-          <div className="analyze-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Log Analysis</h2>
-              <button className="modal-close" onClick={() => !analyzing && setShowAnalyzeModal(false)}>✕</button>
-            </div>
-            <div className="modal-body">
-              <p className="modal-desc">
-                Analyzes 194,000+ synthetic BBD Flipkart log rows to train 4 ML models and auto-generate a data-driven service rulebook.
-              </p>
-              <div className="adapter-note">
-                <div className="adapter-note-title">Adapter Config — how to plug in your own logs</div>
-                <pre className="adapter-config-display">{JSON.stringify({
-                  input_format: "csv",
-                  field_mappings: {
-                    timestamp: "your_timestamp_field",
-                    source_service: "your_caller_field",
-                    target_service: "your_callee_field",
-                    latency_ms: "your_duration_field",
-                    status_code: "your_http_status_field",
-                    concurrent_requests: "your_active_connections_field"
-                  }
-                }, null, 2)}</pre>
-                <p className="adapter-hint">Change only the values — map your field names to ours. Supports CSV, JSON, Nginx/Apache formats.</p>
-              </div>
-              {analyzeResult && (
-                <div className="analyze-success">
-                  <div className="success-icon">✓</div>
-                  <div>
-                    <strong>Analysis complete</strong>
-                    <p>{analyzeResult.rows_analyzed?.toLocaleString()} rows · {analyzeResult.services_discovered} services · {analyzeResult.edges_discovered} edges discovered</p>
-                  </div>
-                </div>
-              )}
-              {analyzeError && <div className="analyze-error">{analyzeError}</div>}
-            </div>
-            <div className="modal-footer">
-              <button className="modal-cancel" onClick={() => !analyzing && setShowAnalyzeModal(false)} disabled={analyzing}>
-                {analyzeResult ? 'Close' : 'Cancel'}
-              </button>
-              <button className="modal-analyze" onClick={handleAnalyzeLogs} disabled={analyzing}>
-                {analyzing ? 'Training Models...' : 'Run Analysis'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <AnalyzeModal
+          onClose={() => setShowAnalyzeModal(false)}
+          onSuccess={() => {
+            setIsMLReady(true);
+            axios.get(`${SIMULATOR_URL}/api/services`).then(r => setServicesConfig(r.data)).catch(() => {});
+          }}
+        />
       )}
     </div>
   );

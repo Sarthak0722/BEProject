@@ -10,6 +10,9 @@ Endpoints:
 """
 
 import os
+import io
+import csv
+import re
 import json
 import traceback
 from flask import Flask, request, jsonify
@@ -132,6 +135,138 @@ def _apply_analysis(rows):
 
 
 # ---------------------------------------------------------------------------
+# CSV Validation
+# ---------------------------------------------------------------------------
+
+REQUIRED_COLS = ['timestamp', 'source_service', 'target_service', 'latency_ms', 'status_code']
+OPTIONAL_COLS = ['endpoint', 'error_type', 'concurrent_requests', 'cpu_percent', 'memory_percent', 'retry_count']
+DATE_PATTERN = re.compile(r'^\d{4}[-/]\d{2}[-/]\d{2}')
+
+def _validate_csv(content):
+    """
+    Full validation of CSV content before training.
+    Returns: { valid: bool, error: str|None, details: list[str], warnings: list[str], row_count: int }
+    """
+    details = []
+    warnings = []
+
+    if not content.strip():
+        return {"valid": False, "error": "File is empty.", "details": [], "warnings": []}
+
+    if len(content) > 50 * 1024 * 1024:
+        return {"valid": False, "error": "File too large (max 50 MB).", "details": [], "warnings": []}
+
+    # Parse CSV
+    try:
+        reader = csv.DictReader(io.StringIO(content))
+        raw_headers = reader.fieldnames
+        if not raw_headers:
+            return {"valid": False, "error": "CSV has no header row.", "details": [], "warnings": []}
+        headers = [h.strip().lower().replace('"', '') for h in raw_headers]
+        rows = list(reader)
+    except Exception as exc:
+        return {"valid": False, "error": f"Cannot parse CSV: {exc}", "details": [], "warnings": []}
+
+    # 1. Required columns
+    missing = [c for c in REQUIRED_COLS if c not in headers]
+    if missing:
+        details.append(f"Your columns: {', '.join(headers)}")
+        details.append(f"Expected: {', '.join(REQUIRED_COLS)}")
+        return {
+            "valid": False,
+            "error": f"Missing required column(s): {', '.join(missing)}",
+            "details": details,
+            "warnings": warnings,
+        }
+
+    # 2. Row count
+    if len(rows) == 0:
+        return {"valid": False, "error": "File has a header but no data rows.", "details": [], "warnings": []}
+    if len(rows) < 10:
+        return {
+            "valid": False,
+            "error": f"Too few rows ({len(rows)}). Need at least 10 data rows.",
+            "details": ["Provide at least 10 rows; 1,000+ recommended for reliable ML models."],
+            "warnings": warnings,
+        }
+    if len(rows) < 1000:
+        warnings.append(f"Only {len(rows):,} rows found. ML models work best with 1,000+ rows.")
+
+    # 3. Data quality checks on a sample (up to 500 rows)
+    sample = rows[:500]
+    n = len(sample)
+
+    bad_latency, bad_status, bad_timestamp = 0, 0, 0
+    empty_source, empty_target = 0, 0
+
+    for row in sample:
+        # latency_ms — numeric, ≥ 0
+        try:
+            lat = float(row.get('latency_ms', '').strip())
+            if lat < 0:
+                bad_latency += 1
+        except (ValueError, AttributeError):
+            bad_latency += 1
+
+        # status_code — integer 100–999
+        try:
+            sc = int(float(row.get('status_code', '').strip()))
+            if sc < 100 or sc > 999:
+                bad_status += 1
+        except (ValueError, AttributeError):
+            bad_status += 1
+
+        # timestamp — must look like a date
+        ts = row.get('timestamp', '').strip()
+        if not ts or not DATE_PATTERN.match(ts):
+            bad_timestamp += 1
+
+        # source/target non-empty
+        if not row.get('source_service', '').strip():
+            empty_source += 1
+        if not row.get('target_service', '').strip():
+            empty_target += 1
+
+    threshold = n * 0.5
+    if bad_latency > threshold:
+        details.append(
+            f"latency_ms: {bad_latency}/{n} sampled rows are not valid numbers ≥ 0  "
+            f"(e.g. found \"{sample[0].get('latency_ms', '?')}\")"
+        )
+    if bad_status > threshold:
+        details.append(
+            f"status_code: {bad_status}/{n} sampled rows are not valid HTTP codes (100–999)  "
+            f"(e.g. found \"{sample[0].get('status_code', '?')}\")"
+        )
+    if bad_timestamp > threshold:
+        details.append(
+            f"timestamp: {bad_timestamp}/{n} sampled rows don't look like dates  "
+            f"(expected ISO 8601, e.g. 2024-11-01T05:00:00Z)"
+        )
+    if empty_source > threshold:
+        details.append(f"source_service: {empty_source}/{n} sampled rows are empty.")
+    if empty_target > threshold:
+        details.append(f"target_service: {empty_target}/{n} sampled rows are empty.")
+
+    if details:
+        return {"valid": False, "error": "Data quality issues found in your file.", "details": details, "warnings": warnings}
+
+    # 4. Need at least 2 distinct services to build a topology
+    sources = {r.get('source_service', '').strip() for r in sample if r.get('source_service', '').strip()}
+    targets = {r.get('target_service', '').strip() for r in sample if r.get('target_service', '').strip()}
+    all_services = sources | targets
+    if len(all_services) < 2:
+        return {
+            "valid": False,
+            "error": f"Only {len(all_services)} unique service(s) found. Need at least 2 to build a service topology.",
+            "details": [f"Services found: {', '.join(all_services) or '(none)'}"],
+            "warnings": warnings,
+        }
+
+    return {"valid": True, "error": None, "details": [], "warnings": warnings, "row_count": len(rows)}
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
@@ -191,6 +326,71 @@ def analyze():
             "services_json": services_json,
         })
 
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.post("/upload-logs")
+def upload_logs():
+    """
+    Accepts a CSV file upload via multipart/form-data.
+    Validates the file, then trains all 4 ML models on it.
+    """
+    if 'file' not in request.files:
+        return jsonify({"error": "No file provided. Send a multipart/form-data request with field 'file'."}), 400
+
+    file = request.files['file']
+    if not file or file.filename == '':
+        return jsonify({"error": "No file selected."}), 400
+
+    # Extension check
+    fname = file.filename.lower()
+    if not fname.endswith('.csv'):
+        return jsonify({
+            "error": f"File must be a .csv file (received: {file.filename}).",
+            "details": [],
+        }), 400
+
+    # Read content
+    try:
+        content = file.read().decode('utf-8')
+    except UnicodeDecodeError:
+        return jsonify({
+            "error": "File encoding error. Save your file as UTF-8 CSV and try again.",
+            "details": [],
+        }), 400
+
+    # Validate
+    validation = _validate_csv(content)
+    if not validation["valid"]:
+        return jsonify({
+            "error": validation["error"],
+            "details": validation.get("details", []),
+        }), 400
+
+    # Normalize & train
+    try:
+        rows = normalize(content, DEFAULT_ADAPTER_CONFIG)
+        if not rows:
+            return jsonify({"error": "No rows could be normalized after parsing. Check column values."}), 400
+
+        services_json = _apply_analysis(rows)
+
+        try:
+            with open(SERVICES_JSON_PATH, "w") as f:
+                json.dump(services_json, f, indent=2)
+        except Exception:
+            pass
+
+        return jsonify({
+            "success": True,
+            "rows_analyzed": len(rows),
+            "services_discovered": len(services_json["nodes"]),
+            "edges_discovered": len(services_json["edges"]),
+            "features_available": state["features"],
+            "warnings": validation.get("warnings", []),
+        })
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500

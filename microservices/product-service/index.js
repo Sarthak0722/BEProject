@@ -28,67 +28,52 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 // Helper function to simulate errors
 const shouldFail = () => Math.random() < serviceState.errorRate;
 
-// Check dependency health
+// Check dependency health — only tracks dependency status, does not modify own state
 async function checkDependencyHealth() {
   try {
     const response = await axios.get(`${DATABASE_SERVICE_URL}/health`, { timeout: 5000 });
     serviceState.dependencyHealth.database = response.data.health;
-    
-    // Update own health based on dependencies
-    if (response.data.health === 'failed') {
-      serviceState.health = 'failed';
-      serviceState.isFailed = true;
-    } else if (response.data.health === 'degraded') {
-      serviceState.health = 'degraded';
-      serviceState.isDegraded = true;
-    } else if (!serviceState.isFailed && !serviceState.isDegraded) {
-      serviceState.health = 'healthy';
-    }
   } catch (error) {
     serviceState.dependencyHealth.database = 'failed';
-    serviceState.health = 'failed';
-    serviceState.isFailed = true;
   }
+}
+
+function getEffectiveHealth() {
+  if (serviceState.isFailed) return 'failed';
+  if (serviceState.errorRate >= 0.5) return 'failed';
+  if (serviceState.injectedLatency >= 3000) return 'failed';
+  if (serviceState.isDegraded) return 'degraded';
+  if (serviceState.errorRate >= 0.15) return 'degraded';
+  if (serviceState.injectedLatency >= 800) return 'degraded';
+  return 'healthy';
 }
 
 // Health check endpoint
 app.get('/health', async (req, res) => {
   try {
     await checkDependencyHealth();
-    
-    if (serviceState.isFailed) {
+    const health = getEffectiveHealth();
+    serviceState.health = health;
+
+    if (health === 'failed') {
       return res.status(500).json({
-        health: 'failed',
-        service: 'product-service',
-        timestamp: new Date().toISOString(),
+        health: 'failed', service: 'product-service', timestamp: new Date().toISOString(),
         reason: serviceState.lastFault?.reason || 'Service is in failed state',
-        dependencies: serviceState.dependencyHealth
+        dependencies: serviceState.dependencyHealth,
+        injectedLatency: serviceState.injectedLatency, errorRate: serviceState.errorRate
       });
     }
-
-    if (serviceState.isDegraded) {
+    if (health === 'degraded') {
       return res.json({
-        health: 'degraded',
-        service: 'product-service',
-        timestamp: new Date().toISOString(),
-        reason: serviceState.lastFault?.reason || 'Service is in degraded state',
-        dependencies: serviceState.dependencyHealth
+        health: 'degraded', service: 'product-service', timestamp: new Date().toISOString(),
+        reason: serviceState.lastFault?.reason || 'High latency or error rate detected',
+        dependencies: serviceState.dependencyHealth,
+        injectedLatency: serviceState.injectedLatency, errorRate: serviceState.errorRate
       });
     }
-
-    res.json({
-      health: 'healthy',
-      service: 'product-service',
-      timestamp: new Date().toISOString(),
-      dependencies: serviceState.dependencyHealth
-    });
+    res.json({ health: 'healthy', service: 'product-service', timestamp: new Date().toISOString(), dependencies: serviceState.dependencyHealth });
   } catch (error) {
-    res.status(500).json({
-      health: 'failed',
-      service: 'product-service',
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
+    res.status(500).json({ health: 'failed', service: 'product-service', error: error.message, timestamp: new Date().toISOString() });
   }
 });
 
@@ -120,8 +105,17 @@ app.post('/inject-fault', async (req, res) => {
       serviceState.errorRate = rate || 0;
       serviceState.lastFault = { type, rate };
       break;
+
+    case 'RESET':
+      serviceState.isFailed = false;
+      serviceState.isDegraded = false;
+      serviceState.health = 'healthy';
+      serviceState.injectedLatency = 0;
+      serviceState.errorRate = 0;
+      serviceState.lastFault = null;
+      break;
   }
-  
+
   res.json({
     success: true,
     message: 'Fault injected successfully',

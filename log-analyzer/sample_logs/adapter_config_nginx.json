@@ -1,0 +1,32 @@
+{
+  "_comment": "Adapter for Nginx/Apache Combined Access Log format. Uses 'apache' parser — no field_mappings needed for standard fields.",
+  "_sample_nginx_line": "192.168.1.1 - - [01/Nov/2024:09:45:12 +0000] \"POST /auth/validate HTTP/1.1\" 200 512 0.342",
+  "input_format": "apache",
+  "field_mappings": {
+    "timestamp": "time",
+    "endpoint": "path",
+    "latency_ms": "duration",
+    "status_code": "status"
+  },
+  "derived_fields": {
+    "source_service": "static:api-gateway",
+    "target_service": "static:auth-service",
+    "concurrent_requests": "ignore",
+    "cpu_percent": "ignore",
+    "memory_percent": "ignore",
+    "retry_count": "ignore"
+  },
+  "error_detection": {
+    "from_status_code": true,
+    "error_threshold": 400
+  },
+  "_note_limitations": "Nginx access logs do not contain source/target service names or resource metrics. Kendra sets static service values from derived_fields. For multi-service setups, use one adapter config per service log file.",
+  "_note_latency": "Nginx logs request time in seconds (e.g., 0.342). Kendra auto-detects and converts to milliseconds.",
+  "_features_available": {
+    "load_simulation": false,
+    "cascade_prediction": true,
+    "anomaly_detection": true,
+    "resource_saturation": false,
+    "retry_amplification": false
+  }
+}

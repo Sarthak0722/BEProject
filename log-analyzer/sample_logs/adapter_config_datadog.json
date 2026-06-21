@@ -1,0 +1,47 @@
+{
+  "_comment": "Adapter for Datadog APM trace logs exported as JSON. Maps Datadog field names to Kendra canonical schema.",
+  "_sample_datadog_row": {
+    "timestamp": "2024-11-01T09:45:12.342Z",
+    "service": "auth-service",
+    "resource_name": "database-service",
+    "http.url": "/auth/validate",
+    "duration": 342500000,
+    "http.status_code": "200",
+    "@network.bytes_read": 1024,
+    "host.name": "prod-node-12",
+    "env": "production",
+    "error": 0
+  },
+  "input_format": "json",
+  "field_mappings": {
+    "timestamp": "timestamp",
+    "source_service": "service",
+    "target_service": "resource_name",
+    "endpoint": "http.url",
+    "latency_ms": "duration",
+    "status_code": "http.status_code",
+    "error_type": null,
+    "concurrent_requests": null,
+    "cpu_percent": null,
+    "memory_percent": null,
+    "retry_count": null
+  },
+  "derived_fields": {
+    "concurrent_requests": "ignore",
+    "cpu_percent": "ignore",
+    "memory_percent": "ignore",
+    "retry_count": "ignore"
+  },
+  "error_detection": {
+    "from_status_code": true,
+    "error_threshold": 400
+  },
+  "_note_latency": "Datadog stores duration in nanoseconds. Kendra expects ms. Divide by 1,000,000 before ingestion or use the built-in 's' suffix detection.",
+  "_features_available": {
+    "load_simulation": false,
+    "cascade_prediction": true,
+    "anomaly_detection": true,
+    "resource_saturation": false,
+    "retry_amplification": false
+  }
+}

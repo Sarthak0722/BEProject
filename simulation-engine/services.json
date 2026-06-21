@@ -15,11 +15,11 @@
       "criticality": "critical"
     },
     {
-      "id": "user-service",
-      "name": "User Service",
-      "url": "http://user-service:3000",
-      "type": "business",
-      "criticality": "high"
+      "id": "database-service",
+      "name": "Database Service",
+      "url": "http://database-service:3000",
+      "type": "data",
+      "criticality": "critical"
     },
     {
       "id": "order-service",
@@ -36,21 +36,17 @@
       "criticality": "medium"
     },
     {
-      "id": "database-service",
-      "name": "Database Service",
-      "url": "http://database-service:3000",
-      "type": "data",
-      "criticality": "critical"
+      "id": "user-service",
+      "name": "User Service",
+      "url": "http://user-service:3000",
+      "type": "business",
+      "criticality": "high"
     }
   ],
   "edges": [
     {
       "source": "api-gateway",
       "target": "auth-service"
-    },
-    {
-      "source": "api-gateway",
-      "target": "user-service"
     },
     {
       "source": "api-gateway",
@@ -61,11 +57,11 @@
       "target": "product-service"
     },
     {
-      "source": "auth-service",
-      "target": "database-service"
+      "source": "api-gateway",
+      "target": "user-service"
     },
     {
-      "source": "user-service",
+      "source": "auth-service",
       "target": "database-service"
     },
     {
@@ -83,6 +79,10 @@
     {
       "source": "product-service",
       "target": "database-service"
+    },
+    {
+      "source": "user-service",
+      "target": "database-service"
     }
   ],
   "behaviors": {
@@ -91,54 +91,81 @@
         "auth-service": {
           "onFailure": {
             "newState": "degraded",
-            "reason": "Authentication unavailable, allowing read-only access",
-            "propagationDelay": 1000
+            "reason": "auth-service failure affects api-gateway operations",
+            "propagationDelay": 555,
+            "historical_error_rate": 0.161
           },
           "onLatency": {
-            "threshold_ms": 2000,
+            "threshold_ms": 2775,
             "newState": "degraded",
-            "reason": "High latency from Auth Service affecting response times",
-            "propagationDelay": 500
+            "reason": "High latency from auth-service degrading api-gateway performance",
+            "propagationDelay": 277,
+            "p95_baseline_ms": 1850.3,
+            "p99_baseline_ms": 2069.6
           },
           "onDegraded": {
             "newState": "degraded",
-            "reason": "Auth service degradation affecting gateway performance"
-          }
-        },
-        "user-service": {
-          "onFailure": {
-            "newState": "degraded",
-            "reason": "User management unavailable",
-            "propagationDelay": 1500
-          },
-          "onLatency": {
-            "threshold_ms": 1500,
-            "newState": "degraded",
-            "reason": "User service latency affecting API responses"
+            "reason": "auth-service degradation cascades to api-gateway"
           }
         },
         "order-service": {
           "onFailure": {
             "newState": "degraded",
-            "reason": "Order processing unavailable",
-            "propagationDelay": 2000
+            "reason": "order-service failure affects api-gateway operations",
+            "propagationDelay": 727,
+            "historical_error_rate": 0.191
           },
           "onLatency": {
-            "threshold_ms": 1000,
+            "threshold_ms": 3638,
             "newState": "degraded",
-            "reason": "Order service latency affecting transaction processing"
+            "reason": "High latency from order-service degrading api-gateway performance",
+            "propagationDelay": 363,
+            "p95_baseline_ms": 2425.9,
+            "p99_baseline_ms": 2682.6
+          },
+          "onDegraded": {
+            "newState": "degraded",
+            "reason": "order-service degradation cascades to api-gateway"
           }
         },
         "product-service": {
           "onFailure": {
             "newState": "degraded",
-            "reason": "Product catalog unavailable",
-            "propagationDelay": 1000
+            "reason": "product-service failure affects api-gateway operations",
+            "propagationDelay": 306,
+            "historical_error_rate": 0.077
           },
           "onLatency": {
-            "threshold_ms": 2000,
+            "threshold_ms": 1531,
             "newState": "degraded",
-            "reason": "Product service latency affecting catalog access"
+            "reason": "High latency from product-service degrading api-gateway performance",
+            "propagationDelay": 153,
+            "p95_baseline_ms": 1021.3,
+            "p99_baseline_ms": 1224.8
+          },
+          "onDegraded": {
+            "newState": "degraded",
+            "reason": "product-service degradation cascades to api-gateway"
+          }
+        },
+        "user-service": {
+          "onFailure": {
+            "newState": "degraded",
+            "reason": "user-service failure affects api-gateway operations",
+            "propagationDelay": 406,
+            "historical_error_rate": 0.129
+          },
+          "onLatency": {
+            "threshold_ms": 2031,
+            "newState": "degraded",
+            "reason": "High latency from user-service degrading api-gateway performance",
+            "propagationDelay": 203,
+            "p95_baseline_ms": 1354.4,
+            "p99_baseline_ms": 1570.3
+          },
+          "onDegraded": {
+            "newState": "degraded",
+            "reason": "user-service degradation cascades to api-gateway"
           }
         }
       },
@@ -152,127 +179,164 @@
       "dependencies": {
         "database-service": {
           "onFailure": {
-            "newState": "failed",
-            "reason": "Cannot authenticate users without database access",
-            "propagationDelay": 500
+            "newState": "degraded",
+            "reason": "database-service failure affects auth-service operations",
+            "propagationDelay": 401,
+            "historical_error_rate": 0.279
           },
           "onLatency": {
-            "threshold_ms": 1500,
+            "threshold_ms": 2006,
             "newState": "degraded",
-            "reason": "Database latency affecting authentication performance",
-            "propagationDelay": 1000
+            "reason": "High latency from database-service degrading auth-service performance",
+            "propagationDelay": 200,
+            "p95_baseline_ms": 1337.6,
+            "p99_baseline_ms": 1456.1
           },
           "onDegraded": {
             "newState": "degraded",
-            "reason": "Database degradation affecting auth reliability"
+            "reason": "database-service degradation cascades to auth-service"
           }
         }
       },
       "resilience": {
         "circuitBreaker": true,
         "retryPolicy": "linear",
-        "timeout": 3000,
-        "fallback": "cached_tokens"
-      }
-    },
-    "user-service": {
-      "dependencies": {
-        "database-service": {
-          "onFailure": {
-            "newState": "failed",
-            "reason": "Cannot manage users without database access"
-          },
-          "onLatency": {
-            "threshold_ms": 1000,
-            "newState": "degraded",
-            "reason": "Database latency affecting user operations"
-          }
-        }
-      }
-    },
-    "order-service": {
-      "dependencies": {
-        "database-service": {
-          "onFailure": {
-            "newState": "failed",
-            "reason": "Cannot process orders without database access",
-            "propagationDelay": 300
-          },
-          "onLatency": {
-            "threshold_ms": 1000,
-            "newState": "degraded",
-            "reason": "Database latency affecting order processing",
-            "propagationDelay": 800
-          },
-          "onDegraded": {
-            "newState": "degraded",
-            "reason": "Database degradation affecting order reliability"
-          }
-        },
-        "product-service": {
-          "onFailure": {
-            "newState": "degraded",
-            "reason": "Cannot fetch product details for orders",
-            "propagationDelay": 1000
-          },
-          "onLatency": {
-            "threshold_ms": 1000,
-            "newState": "degraded",
-            "reason": "High latency from Product Service affecting order validation",
-            "propagationDelay": 500
-          },
-          "onDegraded": {
-            "newState": "degraded",
-            "reason": "Product service degradation affecting order validation"
-          }
-        },
-        "user-service": {
-          "onFailure": {
-            "newState": "failed",
-            "reason": "Critical dependency on User Service for order validation",
-            "propagationDelay": 200
-          },
-          "onLatency": {
-            "threshold_ms": 1500,
-            "newState": "degraded",
-            "reason": "User service latency affecting order processing",
-            "propagationDelay": 1000
-          },
-          "onDegraded": {
-            "newState": "degraded",
-            "reason": "User service degradation affecting order validation"
-          }
-        }
-      },
-      "resilience": {
-        "circuitBreaker": true,
-        "retryPolicy": "exponential",
-        "timeout": 4000,
-        "fallback": "queue_orders"
-      }
-    },
-    "product-service": {
-      "dependencies": {
-        "database-service": {
-          "onFailure": {
-            "newState": "failed",
-            "reason": "Cannot serve products without database access"
-          },
-          "onLatency": {
-            "threshold_ms": 1000,
-            "newState": "degraded",
-            "reason": "Database latency affecting product retrieval"
-          }
-        }
+        "timeout": 5000
       }
     },
     "database-service": {
       "dependencies": {},
       "resilience": {
         "circuitBreaker": false,
-        "retryPolicy": "none",
-        "timeout": 10000,
-        "fallback": "none"
+        "retryPolicy": "linear",
+        "timeout": 5000
+      }
+    },
+    "order-service": {
+      "dependencies": {
+        "database-service": {
+          "onFailure": {
+            "newState": "degraded",
+            "reason": "database-service failure affects order-service operations",
+            "propagationDelay": 401,
+            "historical_error_rate": 0.279
+          },
+          "onLatency": {
+            "threshold_ms": 2009,
+            "newState": "degraded",
+            "reason": "High latency from database-service degrading order-service performance",
+            "propagationDelay": 200,
+            "p95_baseline_ms": 1339.8,
+            "p99_baseline_ms": 1457.3
+          },
+          "onDegraded": {
+            "newState": "degraded",
+            "reason": "database-service degradation cascades to order-service"
+          }
+        },
+        "product-service": {
+          "onFailure": {
+            "newState": "degraded",
+            "reason": "product-service failure affects order-service operations",
+            "propagationDelay": 307,
+            "historical_error_rate": 0.076
+          },
+          "onLatency": {
+            "threshold_ms": 1537,
+            "newState": "degraded",
+            "reason": "High latency from product-service degrading order-service performance",
+            "propagationDelay": 153,
+            "p95_baseline_ms": 1025.2,
+            "p99_baseline_ms": 1221.1
+          },
+          "onDegraded": {
+            "newState": "degraded",
+            "reason": "product-service degradation cascades to order-service"
+          }
+        },
+        "user-service": {
+          "onFailure": {
+            "newState": "degraded",
+            "reason": "user-service failure affects order-service operations",
+            "propagationDelay": 407,
+            "historical_error_rate": 0.129
+          },
+          "onLatency": {
+            "threshold_ms": 2039,
+            "newState": "degraded",
+            "reason": "High latency from user-service degrading order-service performance",
+            "propagationDelay": 203,
+            "p95_baseline_ms": 1359.6,
+            "p99_baseline_ms": 1579.0
+          },
+          "onDegraded": {
+            "newState": "degraded",
+            "reason": "user-service degradation cascades to order-service"
+          }
+        }
+      },
+      "resilience": {
+        "circuitBreaker": true,
+        "retryPolicy": "exponential",
+        "timeout": 5000
+      }
+    },
+    "product-service": {
+      "dependencies": {
+        "database-service": {
+          "onFailure": {
+            "newState": "degraded",
+            "reason": "database-service failure affects product-service operations",
+            "propagationDelay": 401,
+            "historical_error_rate": 0.284
+          },
+          "onLatency": {
+            "threshold_ms": 2007,
+            "newState": "degraded",
+            "reason": "High latency from database-service degrading product-service performance",
+            "propagationDelay": 200,
+            "p95_baseline_ms": 1338.1,
+            "p99_baseline_ms": 1458.1
+          },
+          "onDegraded": {
+            "newState": "degraded",
+            "reason": "database-service degradation cascades to product-service"
+          }
+        }
+      },
+      "resilience": {
+        "circuitBreaker": true,
+        "retryPolicy": "linear",
+        "timeout": 5000
+      }
+    },
+    "user-service": {
+      "dependencies": {
+        "database-service": {
+          "onFailure": {
+            "newState": "degraded",
+            "reason": "database-service failure affects user-service operations",
+            "propagationDelay": 402,
+            "historical_error_rate": 0.283
+          },
+          "onLatency": {
+            "threshold_ms": 2014,
+            "newState": "degraded",
+            "reason": "High latency from database-service degrading user-service performance",
+            "propagationDelay": 201,
+            "p95_baseline_ms": 1343.3,
+            "p99_baseline_ms": 1461.1
+          },
+          "onDegraded": {
+            "newState": "degraded",
+            "reason": "database-service degradation cascades to user-service"
+          }
+        }
+      },
+      "resilience": {
+        "circuitBreaker": true,
+        "retryPolicy": "linear",
+        "timeout": 5000
       }
     }
   },
@@ -284,15 +348,33 @@
         {
           "action": "inject_fault",
           "service": "database-service",
-          "fault": { "type": "FAILURE", "isFailed": true }
+          "fault": {
+            "type": "FAILURE",
+            "isFailed": true
+          }
         }
       ],
       "expectedResults": [
-        { "service": "auth-service", "state": "failed" },
-        { "service": "user-service", "state": "failed" },
-        { "service": "product-service", "state": "failed" },
-        { "service": "order-service", "state": "failed" },
-        { "service": "api-gateway", "state": "degraded" }
+        {
+          "service": "auth-service",
+          "state": "failed"
+        },
+        {
+          "service": "user-service",
+          "state": "failed"
+        },
+        {
+          "service": "product-service",
+          "state": "failed"
+        },
+        {
+          "service": "order-service",
+          "state": "failed"
+        },
+        {
+          "service": "api-gateway",
+          "state": "degraded"
+        }
       ]
     },
     {
@@ -302,14 +384,29 @@
         {
           "action": "inject_fault",
           "service": "database-service",
-          "fault": { "type": "LATENCY", "delay": 2000 }
+          "fault": {
+            "type": "LATENCY",
+            "delay": 2000
+          }
         }
       ],
       "expectedResults": [
-        { "service": "auth-service", "state": "degraded" },
-        { "service": "user-service", "state": "degraded" },
-        { "service": "product-service", "state": "degraded" },
-        { "service": "order-service", "state": "degraded" }
+        {
+          "service": "auth-service",
+          "state": "degraded"
+        },
+        {
+          "service": "user-service",
+          "state": "degraded"
+        },
+        {
+          "service": "product-service",
+          "state": "degraded"
+        },
+        {
+          "service": "order-service",
+          "state": "degraded"
+        }
       ]
     },
     {
@@ -319,7 +416,10 @@
         {
           "action": "inject_fault",
           "service": "database-service",
-          "fault": { "type": "FAILURE", "isFailed": true }
+          "fault": {
+            "type": "FAILURE",
+            "isFailed": true
+          }
         },
         {
           "action": "wait",
@@ -331,10 +431,22 @@
         }
       ],
       "expectedResults": [
-        { "service": "auth-service", "state": "healthy" },
-        { "service": "user-service", "state": "healthy" },
-        { "service": "product-service", "state": "healthy" },
-        { "service": "order-service", "state": "healthy" }
+        {
+          "service": "auth-service",
+          "state": "healthy"
+        },
+        {
+          "service": "user-service",
+          "state": "healthy"
+        },
+        {
+          "service": "product-service",
+          "state": "healthy"
+        },
+        {
+          "service": "order-service",
+          "state": "healthy"
+        }
       ]
     },
     {
@@ -344,16 +456,37 @@
         {
           "action": "inject_fault",
           "service": "product-service",
-          "fault": { "type": "FAILURE", "isFailed": true }
+          "fault": {
+            "type": "FAILURE",
+            "isFailed": true
+          }
         }
       ],
       "expectedResults": [
-        { "service": "product-service", "state": "failed" },
-        { "service": "order-service", "state": "degraded" },
-        { "service": "api-gateway", "state": "degraded" },
-        { "service": "auth-service", "state": "healthy" },
-        { "service": "user-service", "state": "healthy" },
-        { "service": "database-service", "state": "healthy" }
+        {
+          "service": "product-service",
+          "state": "failed"
+        },
+        {
+          "service": "order-service",
+          "state": "degraded"
+        },
+        {
+          "service": "api-gateway",
+          "state": "degraded"
+        },
+        {
+          "service": "auth-service",
+          "state": "healthy"
+        },
+        {
+          "service": "user-service",
+          "state": "healthy"
+        },
+        {
+          "service": "database-service",
+          "state": "healthy"
+        }
       ]
     },
     {
@@ -363,7 +496,10 @@
         {
           "action": "inject_fault",
           "service": "user-service",
-          "fault": { "type": "FAILURE", "isFailed": true }
+          "fault": {
+            "type": "FAILURE",
+            "isFailed": true
+          }
         },
         {
           "action": "wait",
@@ -372,7 +508,10 @@
         {
           "action": "inject_fault",
           "service": "product-service",
-          "fault": { "type": "LATENCY", "delay": 3000 }
+          "fault": {
+            "type": "LATENCY",
+            "delay": 3000
+          }
         },
         {
           "action": "wait",
@@ -384,9 +523,18 @@
         }
       ],
       "expectedResults": [
-        { "service": "user-service", "state": "healthy" },
-        { "service": "order-service", "state": "degraded" },
-        { "service": "product-service", "state": "healthy" }
+        {
+          "service": "user-service",
+          "state": "healthy"
+        },
+        {
+          "service": "order-service",
+          "state": "degraded"
+        },
+        {
+          "service": "product-service",
+          "state": "healthy"
+        }
       ]
     }
   ],
@@ -397,7 +545,13 @@
     "alertThresholds": {
       "failedServices": 2,
       "degradedServices": 3,
-      "systemLatency": 5000
+      "systemLatency": 2080
+    },
+    "derivedFrom": {
+      "logRows": 194019,
+      "uniqueServices": 6,
+      "uniqueEdges": 10,
+      "systemP95LatencyMs": 1386.7
     }
   }
 }

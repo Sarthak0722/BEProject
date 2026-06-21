@@ -1,31 +1,48 @@
 version: '3.8'
 
 services:
-  # Frontend Control Panel
+  # ── Frontend Control Panel ──────────────────────────────────────────────
   frontend:
     build: ./frontend
     ports:
       - "3000:3000"
     environment:
-      - REACT_APP_SIMULATOR_URL=http://localhost:4000
+      - REACT_APP_SIMULATOR_URL=http://localhost:4001
+      - REACT_APP_ML_URL=http://localhost:5001
     depends_on:
       - simulation-engine
+      - log-analyzer
     networks:
       - kendra-network
 
-  # Simulation Engine
+  # ── Simulation Engine ───────────────────────────────────────────────────
   simulation-engine:
     build: ./simulation-engine
     ports:
-      - "4000:4000"
+      - "4001:4000"
     volumes:
       - ./simulation-engine/services.json:/app/services.json
     environment:
       - NODE_ENV=development
+      - PORT=4000
+      - FRONTEND_URL=http://localhost:3000
     networks:
       - kendra-network
 
-  # Microservice Actors
+  # ── ML / Log Analyzer ──────────────────────────────────────────────────
+  log-analyzer:
+    build: ./log-analyzer
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./log-analyzer/sample_logs:/app/sample_logs
+      - ./simulation-engine/services.json:/app/../simulation-engine/services.json
+    environment:
+      - PORT=5001
+    networks:
+      - kendra-network
+
+  # ── Microservice Actors ─────────────────────────────────────────────────
   api-gateway:
     build: ./microservices/api-gateway
     ports:

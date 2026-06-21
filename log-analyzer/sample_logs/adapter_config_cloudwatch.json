@@ -1,0 +1,46 @@
+{
+  "_comment": "Adapter for AWS CloudWatch Logs Insights export (CSV format). Maps CloudWatch fields to Kendra canonical schema.",
+  "_sample_cloudwatch_row": {
+    "@timestamp": "2024-11-01 09:45:12.342",
+    "log_group": "/ecs/auth-service",
+    "upstream_service": "database-service",
+    "request_path": "/auth/validate",
+    "response_time_ms": "342.5",
+    "http_status": "200",
+    "active_connections": "450",
+    "cpu_utilization": "45.2",
+    "memory_utilization": "61.8",
+    "retry_attempts": "0",
+    "error_message": ""
+  },
+  "input_format": "csv",
+  "delimiter": ",",
+  "field_mappings": {
+    "timestamp": "@timestamp",
+    "source_service": "log_group",
+    "target_service": "upstream_service",
+    "endpoint": "request_path",
+    "latency_ms": "response_time_ms",
+    "status_code": "http_status",
+    "error_type": "error_message",
+    "concurrent_requests": "active_connections",
+    "cpu_percent": "cpu_utilization",
+    "memory_percent": "memory_utilization",
+    "retry_count": "retry_attempts"
+  },
+  "derived_fields": {
+    "source_service": "log_group"
+  },
+  "error_detection": {
+    "from_status_code": true,
+    "error_threshold": 400
+  },
+  "_note_source_service": "CloudWatch log_group is typically '/ecs/service-name' — Kendra strips the prefix automatically via normalizer.",
+  "_features_available": {
+    "load_simulation": true,
+    "cascade_prediction": true,
+    "anomaly_detection": true,
+    "resource_saturation": true,
+    "retry_amplification": true
+  }
+}

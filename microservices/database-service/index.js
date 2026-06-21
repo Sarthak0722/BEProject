@@ -44,24 +44,41 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 // Helper function to simulate errors
 const shouldFail = () => Math.random() < serviceState.errorRate;
 
+function getEffectiveHealth() {
+  if (serviceState.isFailed) return 'failed';
+  if (serviceState.errorRate >= 0.5) return 'failed';
+  if (serviceState.injectedLatency >= 3000) return 'failed';
+  if (serviceState.isDegraded) return 'degraded';
+  if (serviceState.errorRate >= 0.15) return 'degraded';
+  if (serviceState.injectedLatency >= 800) return 'degraded';
+  return 'healthy';
+}
+
 // Health check endpoint
 app.get('/health', async (req, res) => {
   try {
-    if (serviceState.isFailed) {
+    const health = getEffectiveHealth();
+    serviceState.health = health;
+
+    if (health === 'failed') {
       return res.status(500).json({
         health: 'failed',
         service: 'database-service',
         timestamp: new Date().toISOString(),
-        reason: serviceState.lastFault?.reason || 'Service is in failed state'
+        reason: serviceState.lastFault?.reason || 'Service is in failed state',
+        injectedLatency: serviceState.injectedLatency,
+        errorRate: serviceState.errorRate
       });
     }
 
-    if (serviceState.isDegraded) {
+    if (health === 'degraded') {
       return res.json({
         health: 'degraded',
         service: 'database-service',
         timestamp: new Date().toISOString(),
-        reason: serviceState.lastFault?.reason || 'Service is in degraded state'
+        reason: serviceState.lastFault?.reason || 'High latency or error rate detected',
+        injectedLatency: serviceState.injectedLatency,
+        errorRate: serviceState.errorRate
       });
     }
 
@@ -76,12 +93,7 @@ app.get('/health', async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({
-      health: 'failed',
-      service: 'database-service',
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
+    res.status(500).json({ health: 'failed', service: 'database-service', error: error.message, timestamp: new Date().toISOString() });
   }
 });
 
@@ -113,8 +125,17 @@ app.post('/inject-fault', async (req, res) => {
       serviceState.errorRate = rate || 0;
       serviceState.lastFault = { type, rate };
       break;
+
+    case 'RESET':
+      serviceState.isFailed = false;
+      serviceState.isDegraded = false;
+      serviceState.health = 'healthy';
+      serviceState.injectedLatency = 0;
+      serviceState.errorRate = 0;
+      serviceState.lastFault = null;
+      break;
   }
-  
+
   res.json({
     success: true,
     message: 'Fault injected successfully',

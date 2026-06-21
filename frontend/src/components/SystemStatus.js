@@ -1,125 +1,148 @@
 import React from 'react';
-import { Activity, RotateCcw, Clock, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import { RotateCcw, Zap, Clock, AlertTriangle, CheckCircle, XCircle, Activity } from 'lucide-react';
 import './SystemStatus.css';
 
-const SystemStatus = ({ systemState, lastUpdate, onReset }) => {
-  const getServiceCounts = () => {
-    const counts = { healthy: 0, degraded: 0, failed: 0, unknown: 0 };
-    
-    Object.values(systemState).forEach(service => {
-      const health = service.health || 'unknown';
-      counts[health] = (counts[health] || 0) + 1;
-    });
-    
-    return counts;
-  };
+const healthColor = (h) => ({ healthy: '#10b981', degraded: '#f59e0b', failed: '#ef4444' }[h] || '#6b7280');
+const healthLabel = (h) => ({ healthy: 'HEALTHY', degraded: 'DEGRADED', failed: 'FAILED' }[h] || 'UNKNOWN');
 
-  const getOverallHealth = () => {
-    const counts = getServiceCounts();
-    const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
-    
-    if (counts.failed > 0) return 'failed';
-    if (counts.degraded > 0) return 'degraded';
-    if (counts.healthy === total) return 'healthy';
-    return 'unknown';
-  };
+const HealthIcon = ({ health, size = 14 }) => {
+  if (health === 'healthy') return <CheckCircle size={size} color="#10b981" />;
+  if (health === 'degraded') return <AlertTriangle size={size} color="#f59e0b" />;
+  if (health === 'failed') return <XCircle size={size} color="#ef4444" />;
+  return <Activity size={size} color="#6b7280" />;
+};
 
-  const getHealthIcon = (health) => {
-    switch (health) {
-      case 'healthy': return <CheckCircle size={16} className="health-icon healthy" />;
-      case 'degraded': return <AlertCircle size={16} className="health-icon degraded" />;
-      case 'failed': return <XCircle size={16} className="health-icon failed" />;
-      default: return <Activity size={16} className="health-icon unknown" />;
+const SystemStatus = ({ systemState = {}, lastUpdate, onReset, serviceFaults = {}, mode }) => {
+  const services = Object.entries(systemState);
+  const counts = { healthy: 0, degraded: 0, failed: 0 };
+  services.forEach(([, s]) => { if (s.health in counts) counts[s.health]++; });
+
+  const overallHealth = counts.failed > 0 ? 'failed' : counts.degraded > 0 ? 'degraded' : 'healthy';
+
+  const getServiceFaultLabel = (serviceId) => {
+    const f = serviceFaults[serviceId];
+    if (!f) return null;
+    const parts = [];
+    if (f.isFailed) parts.push('FAILED');
+    else {
+      if (f.latency > 0) parts.push(`${f.latency}ms`);
+      if (f.errorRate > 0) parts.push(`${f.errorRate}% err`);
     }
+    return parts.length > 0 ? parts.join(' · ') : null;
   };
 
-  const getHealthColor = (health) => {
-    switch (health) {
-      case 'healthy': return '#10b981';
-      case 'degraded': return '#f59e0b';
-      case 'failed': return '#ef4444';
-      default: return '#6b7280';
-    }
-  };
-
-  const counts = getServiceCounts();
-  const overallHealth = getOverallHealth();
-  const totalServices = Object.values(counts).reduce((sum, count) => sum + count, 0);
+  const activeFaultCount = Object.values(serviceFaults).filter(
+    f => f && (f.isFailed || f.latency > 0 || f.errorRate > 0)
+  ).length;
 
   return (
     <div className="system-status">
-      <div className="status-header">
-        <div className="header-content">
-          <h3>System Status</h3>
-          <div className="overall-health">
-            {getHealthIcon(overallHealth)}
-            <span style={{ color: getHealthColor(overallHealth) }}>
-              {overallHealth.toUpperCase()}
-            </span>
+      {/* Panel header */}
+      <div className="ss-header">
+        <div className="ss-title-row">
+          <span className="ss-title">System Status</span>
+          <div className="ss-overall" style={{ color: healthColor(overallHealth) }}>
+            <HealthIcon health={overallHealth} size={13} />
+            <span>{healthLabel(overallHealth)}</span>
           </div>
         </div>
         {lastUpdate && (
-          <div className="last-update">
-            <Clock size={12} />
-            <span>Updated: {new Date(lastUpdate).toLocaleTimeString()}</span>
+          <div className="ss-last-update">
+            <Clock size={10} />
+            {new Date(lastUpdate).toLocaleTimeString()}
           </div>
         )}
       </div>
 
-      <div className="status-content">
-        {/* Service Count Summary */}
-        <div className="service-summary">
-          <div className="summary-item">
-            <div className="summary-label">Total Services</div>
-            <div className="summary-value">{totalServices}</div>
-          </div>
-          <div className="summary-item">
-            <div className="summary-label">Healthy</div>
-            <div className="summary-value healthy">{counts.healthy}</div>
-          </div>
-          <div className="summary-item">
-            <div className="summary-label">Degraded</div>
-            <div className="summary-value degraded">{counts.degraded}</div>
-          </div>
-          <div className="summary-item">
-            <div className="summary-label">Failed</div>
-            <div className="summary-value failed">{counts.failed}</div>
-          </div>
+      {/* Score bar */}
+      <div className="ss-scorebar">
+        <div className="ss-score-item green">
+          <span className="ss-score-num">{counts.healthy}</span>
+          <span className="ss-score-label">Healthy</span>
         </div>
+        <div className="ss-score-divider" />
+        <div className="ss-score-item amber">
+          <span className="ss-score-num">{counts.degraded}</span>
+          <span className="ss-score-label">Degraded</span>
+        </div>
+        <div className="ss-score-divider" />
+        <div className="ss-score-item red">
+          <span className="ss-score-num">{counts.failed}</span>
+          <span className="ss-score-label">Failed</span>
+        </div>
+      </div>
 
-        {/* Service List */}
-        <div className="service-list">
-          <h4>Service Details</h4>
-          <div className="services">
-            {Object.entries(systemState).map(([serviceId, service]) => (
-              <div key={serviceId} className="service-item">
-                <div className="service-info">
-                  {getHealthIcon(service.health)}
-                  <div className="service-details">
-                    <div className="service-name">{service.name || serviceId}</div>
-                    <div className="service-health" style={{ color: getHealthColor(service.health) }}>
-                      {service.health || 'unknown'}
-                    </div>
-                  </div>
+      {/* Simulation badge */}
+      {mode === 'simulation' && activeFaultCount > 0 && (
+        <div className="ss-sim-warning">
+          <Zap size={12} />
+          {activeFaultCount} simulated fault{activeFaultCount > 1 ? 's' : ''} active
+        </div>
+      )}
+
+      {/* Service cards */}
+      <div className="ss-service-cards">
+        {services.length === 0 && (
+          <div className="ss-empty">Waiting for services...</div>
+        )}
+        {services.map(([serviceId, service]) => {
+          const faultLabel = getServiceFaultLabel(serviceId);
+          const hasFault = !!faultLabel;
+          return (
+            <div
+              key={serviceId}
+              className={`ss-card ${service.health || 'unknown'} ${hasFault ? 'has-fault' : ''}`}
+            >
+              <div className="ss-card-left">
+                <div className="ss-card-dot" style={{ background: healthColor(service.health) }} />
+                <div className="ss-card-info">
+                  <span className="ss-card-name">{service.name || serviceId}</span>
+                  <span className="ss-card-health" style={{ color: healthColor(service.health) }}>
+                    {healthLabel(service.health)}
+                  </span>
                 </div>
-                {service.lastUpdated && (
-                  <div className="service-time">
-                    {new Date(service.lastUpdated).toLocaleTimeString()}
-                  </div>
+              </div>
+              <div className="ss-card-right">
+                {hasFault && (
+                  <span className="ss-fault-pill">{faultLabel}</span>
+                )}
+                {service.latency != null && !hasFault && (
+                  <span className="ss-latency">{Math.round(service.latency)}ms</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Metric rows */}
+      {services.some(([, s]) => s.injectedLatency > 0 || s.errorRate > 0) && (
+        <div className="ss-metrics">
+          {services
+            .filter(([, s]) => s.injectedLatency > 0 || s.errorRate > 0)
+            .map(([id, s]) => (
+              <div key={id} className="ss-metric-row">
+                <span className="ss-metric-svc">{s.name || id}</span>
+                {s.injectedLatency > 0 && (
+                  <span className="ss-metric-badge amber">
+                    <Clock size={10} />{s.injectedLatency}ms
+                  </span>
+                )}
+                {s.errorRate > 0 && (
+                  <span className="ss-metric-badge red">
+                    <Zap size={10} />{Math.round(s.errorRate * 100)}% err
+                  </span>
                 )}
               </div>
             ))}
-          </div>
         </div>
+      )}
 
-        {/* System Actions */}
-        <div className="system-actions">
-          <button className="reset-all-button" onClick={onReset}>
-            <RotateCcw size={16} />
-            Reset All Services
-          </button>
-        </div>
-      </div>
+      {/* Reset */}
+      <button className="ss-reset-btn" onClick={onReset}>
+        <RotateCcw size={14} />
+        Reset All Services
+      </button>
     </div>
   );
 };

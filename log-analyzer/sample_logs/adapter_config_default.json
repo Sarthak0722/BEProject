@@ -1,0 +1,22 @@
+{
+  "_comment": "Default adapter — matches Kendra's own canonical log format. No field renaming needed.",
+  "input_format": "csv",
+  "delimiter": ",",
+  "field_mappings": {
+    "timestamp": "timestamp",
+    "source_service": "source_service",
+    "target_service": "target_service",
+    "endpoint": "endpoint",
+    "latency_ms": "latency_ms",
+    "status_code": "status_code",
+    "error_type": "error_type",
+    "concurrent_requests": "concurrent_requests",
+    "cpu_percent": "cpu_percent",
+    "memory_percent": "memory_percent",
+    "retry_count": "retry_count"
+  },
+  "error_detection": {
+    "from_status_code": true,
+    "error_threshold": 400
+  }
+}

@@ -84,12 +84,8 @@
 }
 
 .service-node {
-  transition: all 0.3s ease;
-}
-
-.service-node:hover {
-  transform: scale(1.1);
-  filter: brightness(1.2);
+  transition: fill 0.3s ease, stroke 0.3s ease;
+  cursor: pointer;
 }
 
 /* Failed service pulsing animation */

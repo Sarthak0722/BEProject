@@ -1,0 +1,352 @@
+"""
+Kendra Log Analyzer — Flask API
+Endpoints:
+  POST /analyze          — normalize logs + generate services.json + train all models
+  POST /predict/load     — predict system health at N concurrent users
+  POST /predict/cascade  — predict cascade probability for a fault injection
+  GET  /insights         — risk scores, saturation points, anomaly periods, retry amplification
+  POST /normalize        — normalize raw logs (for adapter demo)
+  GET  /health           — service health check
+"""
+
+import os
+import json
+import traceback
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+
+from log_generator import generate_logs
+from normalizer import normalize, normalize_file, get_available_features
+from analyzer import generate_services_json
+from models import (
+    LoadLatencyModel,
+    CascadeModel,
+    AnomalyDetector,
+    SaturationModel,
+    compute_retry_amplification,
+    compute_risk_scores,
+)
+
+app = Flask(__name__)
+CORS(app)
+
+# ---------------------------------------------------------------------------
+# In-memory state — holds trained models and analysis results
+# ---------------------------------------------------------------------------
+state = {
+    "rows": [],
+    "services_json": None,
+    "load_model": None,
+    "cascade_model": None,
+    "anomaly_detector": None,
+    "saturation_model": None,
+    "risk_scores": {},
+    "retry_info": {},
+    "features": {},
+    "trained": False,
+}
+
+SAMPLE_LOGS_DIR = os.path.join(os.path.dirname(__file__), "sample_logs")
+DEFAULT_LOG_PATH = os.path.join(SAMPLE_LOGS_DIR, "bbd_logs.csv")
+SERVICES_JSON_PATH = os.path.join(os.path.dirname(__file__), "..", "simulation-engine", "services.json")
+
+DEFAULT_ADAPTER_CONFIG = {
+    "input_format": "csv",
+    "field_mappings": {
+        "timestamp": "timestamp",
+        "source_service": "source_service",
+        "target_service": "target_service",
+        "endpoint": "endpoint",
+        "latency_ms": "latency_ms",
+        "status_code": "status_code",
+        "error_type": "error_type",
+        "concurrent_requests": "concurrent_requests",
+        "cpu_percent": "cpu_percent",
+        "memory_percent": "memory_percent",
+        "retry_count": "retry_count",
+    },
+    "error_detection": {"from_status_code": True, "error_threshold": 400},
+}
+
+KENDRA_SERVICES = [
+    "api-gateway", "auth-service", "user-service",
+    "order-service", "product-service", "database-service",
+]
+
+
+def _train_all_models(rows):
+    """Train all 4 ML models on normalized rows."""
+    # Split: normal period = first 8 hours (00:00–08:00) for anomaly baseline
+    normal_rows = [r for r in rows if r["timestamp"] < "2024-11-01T08:00:00Z"]
+    if len(normal_rows) < 50:
+        normal_rows = rows[:max(50, len(rows) // 4)]
+
+    load_model = LoadLatencyModel().fit(rows)
+    cascade_model = CascadeModel().fit(rows)
+    anomaly_detector = AnomalyDetector(contamination=0.08).fit(normal_rows)
+    saturation_model = SaturationModel().fit(rows)
+
+    risk_scores = compute_risk_scores(rows, cascade_model, saturation_model)
+    retry_info = compute_retry_amplification(rows)
+    features = get_available_features(rows)
+
+    return load_model, cascade_model, anomaly_detector, saturation_model, risk_scores, retry_info, features
+
+
+def _auto_initialize():
+    """Auto-train on startup if default log file exists."""
+    if os.path.exists(DEFAULT_LOG_PATH) and not state["trained"]:
+        try:
+            rows = normalize_file(DEFAULT_LOG_PATH, DEFAULT_ADAPTER_CONFIG)
+            _apply_analysis(rows)
+            print(f"✅ Auto-initialized with {len(rows):,} log rows from {DEFAULT_LOG_PATH}")
+        except Exception as e:
+            print(f"⚠️  Auto-init failed: {e}")
+
+
+def _apply_analysis(rows):
+    """Run full analysis pipeline and store results in state."""
+    state["rows"] = rows
+
+    # Load existing services.json for node metadata
+    existing_config = None
+    if os.path.exists(SERVICES_JSON_PATH):
+        with open(SERVICES_JSON_PATH) as f:
+            existing_config = json.load(f)
+
+    services_json = generate_services_json(rows, existing_config)
+    state["services_json"] = services_json
+
+    (
+        state["load_model"],
+        state["cascade_model"],
+        state["anomaly_detector"],
+        state["saturation_model"],
+        state["risk_scores"],
+        state["retry_info"],
+        state["features"],
+    ) = _train_all_models(rows)
+
+    state["trained"] = True
+    return services_json
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+@app.get("/health")
+def health():
+    return jsonify({
+        "status": "healthy",
+        "trained": state["trained"],
+        "log_rows": len(state["rows"]),
+        "features_available": state["features"],
+    })
+
+
+@app.post("/analyze")
+def analyze():
+    """
+    Body (JSON):
+      {
+        "log_content": "...",          # raw log string (optional)
+        "log_path": "/path/to/file",   # or file path
+        "adapter_config": { ... }      # optional, defaults to canonical CSV
+      }
+    If neither provided, uses the default BBD sample logs.
+    """
+    try:
+        body = request.get_json(silent=True) or {}
+        adapter_config = body.get("adapter_config", DEFAULT_ADAPTER_CONFIG)
+        log_content = body.get("log_content")
+        log_path = body.get("log_path")
+
+        if log_content:
+            rows = normalize(log_content, adapter_config)
+        elif log_path and os.path.exists(log_path):
+            rows = normalize_file(log_path, adapter_config)
+        else:
+            # Default: use sample BBD logs
+            rows = normalize_file(DEFAULT_LOG_PATH, DEFAULT_ADAPTER_CONFIG)
+
+        if not rows:
+            return jsonify({"error": "No valid log rows after normalization"}), 400
+
+        services_json = _apply_analysis(rows)
+
+        # Write updated services.json to disk so simulation engine picks it up
+        try:
+            with open(SERVICES_JSON_PATH, "w") as f:
+                json.dump(services_json, f, indent=2)
+        except Exception:
+            pass  # Don't fail if path not writable
+
+        return jsonify({
+            "success": True,
+            "rows_analyzed": len(rows),
+            "services_discovered": len(services_json["nodes"]),
+            "edges_discovered": len(services_json["edges"]),
+            "features_available": state["features"],
+            "services_json": services_json,
+        })
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.post("/predict/load")
+def predict_load():
+    """
+    Body: { "concurrent_users": 1000 }
+    Returns predicted health state for all services at that load.
+    """
+    if not state["trained"]:
+        return jsonify({"error": "Models not trained yet. Call POST /analyze first."}), 400
+
+    body = request.get_json(silent=True) or {}
+    concurrent = int(body.get("concurrent_users", 500))
+    concurrent = max(1, min(concurrent, 5000))
+
+    predictions = state["load_model"].predict_all_services(concurrent, KENDRA_SERVICES)
+
+    # Build summary
+    failed = [s for s, p in predictions.items() if p["health"] == "failed"]
+    degraded = [s for s, p in predictions.items() if p["health"] == "degraded"]
+    healthy = [s for s, p in predictions.items() if p["health"] == "healthy"]
+
+    return jsonify({
+        "concurrent_users": concurrent,
+        "predictions": predictions,
+        "summary": {
+            "healthy": healthy,
+            "degraded": degraded,
+            "failed": failed,
+            "overall_status": "critical" if len(failed) >= 2 else
+                              "degraded" if (failed or len(degraded) >= 2) else "healthy",
+        },
+    })
+
+
+@app.post("/predict/cascade")
+def predict_cascade():
+    """
+    Body: { "serviceId": "database-service", "fault": { "type": "FAILURE" } }
+    Returns cascade probability to downstream services.
+    """
+    if not state["trained"]:
+        return jsonify({"error": "Models not trained yet. Call POST /analyze first."}), 400
+
+    body = request.get_json(silent=True) or {}
+    service_id = body.get("serviceId", "")
+    fault = body.get("fault", {})
+
+    cascades = state["cascade_model"].predict_cascade(service_id)
+
+    # For LATENCY faults, reduce probabilities proportionally
+    if fault.get("type") == "LATENCY":
+        delay = fault.get("delay", 0)
+        factor = min(1.0, delay / 3000)
+        cascades = [
+            {**c, "probability": round(c["probability"] * factor, 3)}
+            for c in cascades
+        ]
+        cascades = [c for c in cascades if c["probability"] >= 0.05]
+
+    return jsonify({
+        "serviceId": service_id,
+        "fault": fault,
+        "cascade_predictions": cascades,
+        "summary": {
+            "services_at_risk": len(cascades),
+            "highest_risk": cascades[0] if cascades else None,
+        },
+    })
+
+
+@app.get("/insights")
+def insights():
+    """Returns risk scores, saturation points, anomaly periods, retry amplification."""
+    if not state["trained"]:
+        return jsonify({"error": "Models not trained yet. Call POST /analyze first."}), 400
+
+    # Score a sample of rows for anomaly periods (for performance)
+    sample = state["rows"][::5]  # every 5th row
+    scored = state["anomaly_detector"].score_rows(sample)
+    anomaly_periods = state["anomaly_detector"].get_anomaly_periods(scored)
+
+    saturation_info = state["saturation_model"].get_saturation_info()
+
+    return jsonify({
+        "risk_scores": state["risk_scores"],
+        "saturation_points": saturation_info,
+        "anomaly_periods": anomaly_periods[:10],  # top 10 periods
+        "retry_amplification": state["retry_info"],
+        "features_available": state["features"],
+        "log_summary": {
+            "total_rows": len(state["rows"]),
+            "services": list({r["target_service"] for r in state["rows"]}),
+        },
+    })
+
+
+@app.post("/normalize")
+def normalize_demo():
+    """
+    Demo endpoint for the adapter pattern.
+    Body: { "log_content": "...", "adapter_config": { ... } }
+    Returns normalized rows (first 10) for display.
+    """
+    try:
+        body = request.get_json(silent=True) or {}
+        content = body.get("log_content", "")
+        config = body.get("adapter_config", DEFAULT_ADAPTER_CONFIG)
+
+        if not content:
+            return jsonify({"error": "log_content is required"}), 400
+
+        rows = normalize(content, config)
+        features = get_available_features(rows)
+
+        return jsonify({
+            "success": True,
+            "total_rows": len(rows),
+            "sample_rows": rows[:10],
+            "features_available": features,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.post("/generate-sample-logs")
+def generate_sample():
+    """Regenerate the synthetic BBD logs."""
+    try:
+        os.makedirs(SAMPLE_LOGS_DIR, exist_ok=True)
+        count = generate_logs(DEFAULT_LOG_PATH)
+        # Re-train after generation
+        rows = normalize_file(DEFAULT_LOG_PATH, DEFAULT_ADAPTER_CONFIG)
+        _apply_analysis(rows)
+        return jsonify({"success": True, "rows_generated": count, "rows_analyzed": len(rows)})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Startup
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    # Generate logs if they don't exist
+    os.makedirs(SAMPLE_LOGS_DIR, exist_ok=True)
+    if not os.path.exists(DEFAULT_LOG_PATH):
+        print("📊 Generating synthetic BBD logs...")
+        generate_logs(DEFAULT_LOG_PATH)
+
+    _auto_initialize()
+
+    port = int(os.environ.get("PORT", 5001))
+    print(f"🤖 Kendra ML Service running on port {port}")
+    app.run(host="0.0.0.0", port=port, debug=False)

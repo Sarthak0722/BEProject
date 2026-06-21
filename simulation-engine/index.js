@@ -10,7 +10,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: "http://localhost:3000",
+    origin: process.env.FRONTEND_URL || "http://localhost:3000",
     methods: ["GET", "POST"]
   }
 });
@@ -141,9 +141,19 @@ async function calculatePropagation(affectedServiceId, faultType, faultValue) {
     }
 
     if (shouldPropagate && propagationFault) {
+      const propagationDelay =
+        dependency.onFailure?.propagationDelay ||
+        dependency.onLatency?.propagationDelay ||
+        0;
+
+      if (propagationDelay > 0) {
+        console.log(`⏱️  Waiting ${propagationDelay}ms before propagating to ${dependentService.id}`);
+        await new Promise(resolve => setTimeout(resolve, propagationDelay));
+      }
+
       console.log(`🌊 Propagating ${faultType} from ${affectedServiceId} to ${dependentService.id}`);
       await injectFault(dependentService.id, propagationFault);
-      
+
       // Recursively calculate further propagation
       await calculatePropagation(dependentService.id, propagationFault.type, faultValue);
     }
@@ -305,8 +315,9 @@ app.post('/api/reset-all', async (req, res) => {
   }
 });
 
-// Start health polling
-setInterval(pollSystemHealth, 5000);
+// Start health polling — interval driven by config
+const healthCheckInterval = servicesConfig.monitoring?.healthCheckInterval || 5000;
+setInterval(pollSystemHealth, healthCheckInterval);
 
 // Initialize and start server
 initializeSystemState();

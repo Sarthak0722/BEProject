@@ -34,7 +34,8 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 // Helper function to simulate errors
 const shouldFail = () => Math.random() < serviceState.errorRate;
 
-// Check dependency health
+// Check dependency health — only tracks dependency status, does not modify own state
+// Own state is controlled exclusively by /inject-fault and /reset
 async function checkDependencyHealth() {
   const dependencies = [
     { name: 'auth', url: AUTH_SERVICE_URL },
@@ -51,62 +52,44 @@ async function checkDependencyHealth() {
       serviceState.dependencyHealth[dep.name] = 'failed';
     }
   }
+}
 
-  // Update own health based on dependencies
-  const failedDependencies = Object.values(serviceState.dependencyHealth).filter(h => h === 'failed').length;
-  const degradedDependencies = Object.values(serviceState.dependencyHealth).filter(h => h === 'degraded').length;
-
-  if (failedDependencies >= 2 && !serviceState.isFailed) {
-    serviceState.health = 'failed';
-    serviceState.isFailed = true;
-  } else if (failedDependencies >= 1 || degradedDependencies >= 2) {
-    if (!serviceState.isFailed && !serviceState.isDegraded) {
-      serviceState.health = 'degraded';
-      serviceState.isDegraded = true;
-    }
-  } else if (failedDependencies === 0 && degradedDependencies <= 1 && !serviceState.isFailed && !serviceState.isDegraded) {
-    serviceState.health = 'healthy';
-  }
+function getEffectiveHealth() {
+  if (serviceState.isFailed) return 'failed';
+  if (serviceState.errorRate >= 0.5) return 'failed';
+  if (serviceState.injectedLatency >= 3000) return 'failed';
+  if (serviceState.isDegraded) return 'degraded';
+  if (serviceState.errorRate >= 0.15) return 'degraded';
+  if (serviceState.injectedLatency >= 800) return 'degraded';
+  return 'healthy';
 }
 
 // Health check endpoint
 app.get('/health', async (req, res) => {
   try {
     await checkDependencyHealth();
-    
-    if (serviceState.isFailed) {
+    const health = getEffectiveHealth();
+    serviceState.health = health;
+
+    if (health === 'failed') {
       return res.status(500).json({
-        health: 'failed',
-        service: 'api-gateway',
-        timestamp: new Date().toISOString(),
+        health: 'failed', service: 'api-gateway', timestamp: new Date().toISOString(),
         reason: serviceState.lastFault?.reason || 'Service is in failed state',
-        dependencies: serviceState.dependencyHealth
+        dependencies: serviceState.dependencyHealth,
+        injectedLatency: serviceState.injectedLatency, errorRate: serviceState.errorRate
       });
     }
-
-    if (serviceState.isDegraded) {
+    if (health === 'degraded') {
       return res.json({
-        health: 'degraded',
-        service: 'api-gateway',
-        timestamp: new Date().toISOString(),
-        reason: serviceState.lastFault?.reason || 'Service is in degraded state',
-        dependencies: serviceState.dependencyHealth
+        health: 'degraded', service: 'api-gateway', timestamp: new Date().toISOString(),
+        reason: serviceState.lastFault?.reason || 'High latency or error rate detected',
+        dependencies: serviceState.dependencyHealth,
+        injectedLatency: serviceState.injectedLatency, errorRate: serviceState.errorRate
       });
     }
-
-    res.json({
-      health: 'healthy',
-      service: 'api-gateway',
-      timestamp: new Date().toISOString(),
-      dependencies: serviceState.dependencyHealth
-    });
+    res.json({ health: 'healthy', service: 'api-gateway', timestamp: new Date().toISOString(), dependencies: serviceState.dependencyHealth });
   } catch (error) {
-    res.status(500).json({
-      health: 'failed',
-      service: 'api-gateway',
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
+    res.status(500).json({ health: 'failed', service: 'api-gateway', error: error.message, timestamp: new Date().toISOString() });
   }
 });
 
@@ -138,8 +121,17 @@ app.post('/inject-fault', async (req, res) => {
       serviceState.errorRate = rate || 0;
       serviceState.lastFault = { type, rate };
       break;
+
+    case 'RESET':
+      serviceState.isFailed = false;
+      serviceState.isDegraded = false;
+      serviceState.health = 'healthy';
+      serviceState.injectedLatency = 0;
+      serviceState.errorRate = 0;
+      serviceState.lastFault = null;
+      break;
   }
-  
+
   res.json({
     success: true,
     message: 'Fault injected successfully',

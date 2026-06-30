@@ -200,6 +200,34 @@ body {
 }
 .tour-btn:hover { border-color: #3b82f6; color: #93c5fd; background: rgba(59,130,246,0.06); }
 
+.config-editor-btn {
+  padding: 7px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(40,160,100,0.4);
+  background: rgba(40,160,100,0.1);
+  color: #6ee7b7;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.config-editor-btn:hover { background: rgba(40,160,100,0.2); }
+
+.adapter-demo-btn {
+  padding: 7px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(120,80,200,0.4);
+  background: rgba(120,80,200,0.1);
+  color: #c4a0ff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.adapter-demo-btn:hover { background: rgba(120,80,200,0.2); }
+
 .analyze-btn {
   padding: 7px 16px;
   border-radius: 8px;

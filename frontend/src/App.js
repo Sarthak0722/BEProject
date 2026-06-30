@@ -8,6 +8,8 @@ import LoadSimulator from './components/LoadSimulator';
 import InsightsPanel from './components/InsightsPanel';
 import TourGuide from './components/TourGuide';
 import AnalyzeModal from './components/AnalyzeModal';
+import AdapterDemo from './components/AdapterDemo';
+import ConfigEditor from './components/ConfigEditor';
 import './App.css';
 
 const SIMULATOR_URL = process.env.REACT_APP_SIMULATOR_URL || 'http://localhost:4001';
@@ -36,6 +38,8 @@ export default function App() {
   const [isMLReady, setIsMLReady] = useState(false);
   const [loadPredictions, setLoadPredictions] = useState(null);
   const [showAnalyzeModal, setShowAnalyzeModal] = useState(false);
+  const [showAdapterDemo, setShowAdapterDemo] = useState(false);
+  const [showConfigEditor, setShowConfigEditor] = useState(false);
 
   const socketRef = useRef(null);
 
@@ -201,6 +205,12 @@ export default function App() {
             <button className="tour-btn" onClick={() => setShowTour(true)} title="Take the product tour">
               Take A Tour
             </button>
+            <button className="config-editor-btn" onClick={() => setShowConfigEditor(true)}>
+              ⚙ Config Editor
+            </button>
+            <button className="adapter-demo-btn" onClick={() => setShowAdapterDemo(true)}>
+              ⇄ Adapter Demo
+            </button>
             <button className="analyze-btn" onClick={() => setShowAnalyzeModal(true)}>
               ⬆ Analyze Logs
             </button>
@@ -295,6 +305,16 @@ export default function App() {
           isVisible={showPopup}
           isMLReady={isMLReady}
         />
+      )}
+
+      {/* Config Editor Modal */}
+      {showConfigEditor && (
+        <ConfigEditor onClose={() => setShowConfigEditor(false)} />
+      )}
+
+      {/* Adapter Demo Modal */}
+      {showAdapterDemo && (
+        <AdapterDemo onClose={() => setShowAdapterDemo(false)} />
       )}
 
       {/* Analyze Modal */}
